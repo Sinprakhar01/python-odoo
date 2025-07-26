@@ -219,8 +219,8 @@ class QuizEngine:
 
       def verified_emit(record):
           # Get the original log message
-          log_entry = original_emit.__code__.co_varnames[1]
           msg = record.getMessage()  # Correct way to get the log message
+
 
           # Create HMAC
           h = hmac.HMAC(os.urandom(32), hashes.SHA256(), backend=default_backend())
@@ -722,10 +722,9 @@ class QuizEngine:
         if dependent_id not in self.student_states[student_id]:
             return
         
-        source_state = self.student_states[student_id][source_node_id]
         prereq_state = self.student_states[student_id][prerequisite_id]
         current_state = self.student_states[student_id][dependent_id]
-        
+
         # Calculate new probability as weighted average
         new_prob = (
             current_state.probability * (1 - strength) + 
