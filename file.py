@@ -1020,49 +1020,36 @@ class QuizEngine:
         self.student_states[student_id] = self._deserialize_knowledge_states(data["knowledge_state"])
     
     def _decrypt_data(self, encrypted_data: bytes, key: Optional[str] = None) -> str:
-        """
-        Decrypt data encrypted with AES-256 in CBC mode.
-        
-        Args:
-            encrypted_data: Encrypted data bytes
-            key: Encryption key (uses default if None)
-            
-        Returns:
-            Decrypted data as string
-        """
-        key = key or DEFAULT_ENCRYPTION_KEY
-        if not isinstance(key, str):
-            raise TypeError("Encryption key must be a string")
-        
-        # Extract salt, IV, and encrypted data
-        salt = encrypted_data[:16]
-        iv = encrypted_data[16:32]
-        encrypted = encrypted_data[32:]
-        
-        # Derive key
-        kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=salt,
-            iterations=100000,
-            backend=default_backend()
-        )
-        key_bytes = kdf.derive(key.encode('utf-8'))
-        
-        # Decrypt
-        cipher = Cipher(
-            algorithms.AES(key_bytes),
-            modes.CBC(iv),
-            backend=default_backend()
-        )
-        decryptor = cipher.decryptor()
-        padded_data = decryptor.update(encrypted) + decryptor.finalize()
-        
-        # Unpad
-        unpadder = padding.PKCS7(128).unpadder()
-        data = unpadder.update(padded_data) + unpadder.finalize()
-        
-        return data.decode('utf-8')
+      """
+      Decrypt data encrypted with AES-256-GCM.
+      Args:
+          encrypted_data: Encrypted data bytes (salt + nonce + ciphertext + tag)
+          key: Encryption key (uses default if None)
+      Returns:
+          Decrypted data as string
+      """
+      key = key or DEFAULT_ENCRYPTION_KEY
+      if not isinstance(key, str):
+          raise TypeError("Encryption key must be a string")
+
+      # Extract salt, nonce, and ciphertext
+      salt = encrypted_data[:16]
+      nonce = encrypted_data[16:28]
+      ciphertext = encrypted_data[28:]
+
+      # Derive key
+      kdf = PBKDF2HMAC(
+          algorithm=hashes.SHA256(),
+          length=32,
+          salt=salt,
+          iterations=100000,
+          backend=default_backend()
+      )
+      key_bytes = kdf.derive(key.encode('utf-8'))
+
+      aesgcm = AESGCM(key_bytes)
+      data = aesgcm.decrypt(nonce, ciphertext, None)
+      return data.decode('utf-8')
     
     def _deserialize_knowledge_states(self, data: Dict) -> Dict[NodeID, KnowledgeState]:
         """Convert serialized knowledge states back to objects."""
