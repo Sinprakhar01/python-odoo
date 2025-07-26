@@ -563,8 +563,19 @@ class QuizEngine:
         exp_scores = [math.exp(s) for s in scores]
         sum_exp = sum(exp_scores)
         probs = [exp / sum_exp for exp in exp_scores]
+        def secure_weighted_choice(weights):
+          total = sum(weights)
+          threshold = secrets.randbelow(int(total * 1e9)) / 1e9  # fine-grained
+          acc = 0.0
+          for i, w in enumerate(weights):
+              acc += w
+              if threshold <= acc:
+                  return i
+          return len(weights) - 1  # fallback
+
+
         
-        selected_idx = random.choices(range(len(scored_questions)), weights=probs, k=1)[0]
+        selected_idx = secure_weighted_choice(probs)
         return scored_questions[selected_idx][0]
     
     def _calculate_target_difficulty(self, probability: Probability) -> DifficultyLevel:
