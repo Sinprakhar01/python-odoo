@@ -174,42 +174,42 @@ class QuizEngine:
         self._index_questions()
         
     def _setup_logging(self) -> logging.Logger:
-      """Set up tamper-evident logging with diagnostics.
-      
-      Creates a logger that writes HMAC signatures for each log entry
-      to enable tamper detection.
-      """
+      """Set up tamper-evident logging with diagnostics."""
       logger = logging.getLogger("AdaptiveQuizEngine")
       logger.setLevel(logging.INFO)
       
-      # Create a custom handler class
-      class TamperEvidentFileHandler(logging.FileHandler):
-          def __init__(self, filename, hmac_key=None):
-              super().__init__(filename)
-              self.hmac_key = hmac_key or os.urandom(32)
-              
-          def emit(self, record):
-              # First let the parent class handle the actual logging
-              super().emit(record)
-              
-              # Now append our HMAC signature
-              msg = self.format(record)
-              h = hmac.HMAC(self.hmac_key, hashes.SHA256(), backend=default_backend())
-              h.update(msg.encode('utf-8'))
-              signature = base64.b64encode(h.finalize()).decode('utf-8')
-              
-              # Write signature to file
-              with open(self.baseFilename, 'a') as f:
-                  f.write(f"||SIG:{signature}||\n")
-      
-      # Set up the handler
+      # Create file handler
       log_file = Path("quiz_engine.log")
-      handler = TamperEvidentFileHandler(log_file)
-      handler.setFormatter(logging.Formatter(LOG_FORMAT, LOG_DATE_FORMAT))
-      logger.addHandler(handler)
+      file_handler = logging.FileHandler(log_file)
+      file_handler.setLevel(logging.INFO)
       
-      # Ensure only our handler is present
-      logger.handlers = [handler]
+      # Create formatter and add to handler
+      formatter = logging.Formatter(LOG_FORMAT, LOG_DATE_FORMAT)
+      file_handler.setFormatter(formatter)
+      
+      # Add handler to logger
+      logger.addHandler(file_handler)
+      
+      # Add hash verification - NEW CORRECTED VERSION
+      original_emit = file_handler.emit
+      
+      def verified_emit(record):
+          # First let the original handler do its work
+          original_emit(record)
+          
+          # Now get the formatted message that was actually written
+          msg = formatter.format(record)
+          
+          # Create HMAC
+          h = hmac.HMAC(os.urandom(32), hashes.SHA256(), backend=default_backend())
+          h.update(msg.encode('utf-8'))
+          signature = h.finalize()
+          
+          # Append signature to log file
+          with open(log_file, 'a') as f:
+              f.write(f"||SIG:{base64.b64encode(signature).decode('utf-8')}||\n")
+      
+      file_handler.emit = verified_emit
       
       return logger
     
@@ -237,29 +237,39 @@ class QuizEngine:
       return logger
     
     def _validate_dag(self) -> None:
-        """Validate that the knowledge graph is a proper DAG."""
-        visited = set()
-        recursion_stack = set()
-        
-        def is_cyclic(node_id: NodeID) -> bool:
-            """Check for cycles starting from a node."""
-            visited.add(node_id)
-            recursion_stack.add(node_id)
-            
-            for neighbor in self.knowledge_dag[node_id].prerequisites:
-                if neighbor not in visited:
-                    if is_cyclic(neighbor):
-                        return True
-                elif neighbor in recursion_stack:
-                    return True
-            
-            recursion_stack.remove(node_id)
-            return False
-        
-        for node_id in self.knowledge_dag:
-            if node_id not in visited:
-                if is_cyclic(node_id):
-                    raise ValueError("Knowledge graph contains cycles")
+      """Validate that the knowledge graph is a proper DAG (Directed Acyclic Graph)."""
+      visited = set()
+      recursion_stack = set()
+
+      def is_cyclic(node_id: NodeID) -> bool:
+          """Check for cycles starting from a node using iterative DFS."""
+          stack = [(node_id, False)]  # (node_id, processed)
+          
+          while stack:
+              current_id, processed = stack.pop()
+              
+              if not processed:
+                  if current_id in recursion_stack:
+                      return True
+                  if current_id in visited:
+                      continue
+                      
+                  visited.add(current_id)
+                  recursion_stack.add(current_id)
+                  stack.append((current_id, True))
+                  
+                  # Add neighbors to stack
+                  for neighbor in reversed(self.knowledge_dag[current_id].prerequisites):
+                      stack.append((neighbor, False))
+              else:
+                  recursion_stack.remove(current_id)
+                  
+          return False
+
+      for node_id in self.knowledge_dag:
+          if node_id not in visited:
+              if is_cyclic(node_id):
+                  raise ValueError("Knowledge graph contains cycles")
     
     def _index_questions(self) -> None:
         """Index questions by skill and difficulty for faster lookup."""
