@@ -237,30 +237,29 @@ class QuizEngine:
       return logger
     
     def _validate_dag(self) -> None:
-      """Validate that the knowledge graph is a proper DAG."""
-      visited = set()
-      recursion_stack = set()
-      
-      def is_cyclic(node_id: NodeID) -> bool:
-          """Check for cycles starting from a node."""
-          if node_id in recursion_stack:
-              return True
-          if node_id in visited:
-              return False
-              
-          visited.add(node_id)
-          recursion_stack.add(node_id)
-          
-          for neighbor in self.knowledge_dag[node_id].prerequisites:
-              if is_cyclic(neighbor):
-                  return True
-          
-          recursion_stack.remove(node_id)
-          return False
-      
-      for node_id in self.knowledge_dag:
-          if node_id not in visited and is_cyclic(node_id):
-              raise ValueError("Knowledge graph contains cycles")
+        """Validate that the knowledge graph is a proper DAG."""
+        visited = set()
+        recursion_stack = set()
+        
+        def is_cyclic(node_id: NodeID) -> bool:
+            """Check for cycles starting from a node."""
+            visited.add(node_id)
+            recursion_stack.add(node_id)
+            
+            for neighbor in self.knowledge_dag[node_id].prerequisites:
+                if neighbor not in visited:
+                    if is_cyclic(neighbor):
+                        return True
+                elif neighbor in recursion_stack:
+                    return True
+            
+            recursion_stack.remove(node_id)
+            return False
+        
+        for node_id in self.knowledge_dag:
+            if node_id not in visited:
+                if is_cyclic(node_id):
+                    raise ValueError("Knowledge graph contains cycles")
     
     def _index_questions(self) -> None:
         """Index questions by skill and difficulty for faster lookup."""
@@ -812,51 +811,49 @@ class QuizEngine:
         raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
     
     def _encrypt_data(self, data: str, key: Optional[str] = None) -> bytes:
-      """
-      Encrypt data using AES-256 in CBC mode with PKCS7 padding.
-      
-      Args:
-          data: Data to encrypt
-          key: Encryption key (uses default if None)
-          
-      Returns:
-          Encrypted data as bytes
-      """
-      key = key or DEFAULT_ENCRYPTION_KEY
-      if not isinstance(key, str):
-          raise TypeError("Encryption key must be a string")
-      
-      # Derive key using PBKDF2 with secure parameters
-      salt = os.urandom(16)
-      kdf = PBKDF2HMAC(
-          algorithm=hashes.SHA256(),
-          length=32,
-          salt=salt,
-          iterations=100000,
-          backend=default_backend()
-      )
-      key_bytes = kdf.derive(key.encode('utf-8'))
-      
-      # Generate secure random IV
-      iv = os.urandom(16)
-      
-      # Pad data using PKCS7 padding scheme
-      padder = padding.PKCS7(algorithms.AES.block_size).padder()
-      padded_data = padder.update(data.encode('utf-8')) + padder.finalize()
-      
-      # Create cipher with explicit secure parameters
-      cipher = Cipher(
-          algorithm=algorithms.AES(key_bytes),
-          mode=modes.CBC(iv),
-          backend=default_backend()
-      )
-      encryptor = cipher.encryptor()
-      
-      # Perform encryption
-      encrypted_data = encryptor.update(padded_data) + encryptor.finalize()
-      
-      # Return salt + iv + encrypted data for proper decryption
-      return salt + iv + encrypted_data
+        """
+        Encrypt data using AES-256 in CBC mode with PKCS7 padding.
+        
+        Args:
+            data: Data to encrypt
+            key: Encryption key (uses default if None)
+            
+        Returns:
+            Encrypted data as bytes
+        """
+        key = key or DEFAULT_ENCRYPTION_KEY
+        if not isinstance(key, str):
+            raise TypeError("Encryption key must be a string")
+        
+        # Derive key using PBKDF2
+        salt = os.urandom(16)
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=100000,
+            backend=default_backend()
+        )
+        key_bytes = kdf.derive(key.encode('utf-8'))
+        
+        # Generate IV
+        iv = os.urandom(16)
+        
+        # Pad data
+        padder = padding.PKCS7(128).padder()
+        padded_data = padder.update(data.encode('utf-8')) + padder.finalize()
+        
+        # Encrypt
+        cipher = Cipher(
+            algorithms.AES(key_bytes),
+            modes.CBC(iv),
+            backend=default_backend()
+        )
+        encryptor = cipher.encryptor()
+        encrypted_data = encryptor.update(padded_data) + encryptor.finalize()
+        
+        # Return salt + iv + encrypted data
+        return salt + iv + encrypted_data
     
     def _generate_pdf_report(self, student_id: StudentID, session_id: str) -> Path:
         """
@@ -1076,7 +1073,7 @@ class QuizEngine:
         padded_data = decryptor.update(encrypted) + decryptor.finalize()
         
         # Unpad
-        unpadder = padding.PKCS7(algorithms.AES.block_size).unpadder()
+        unpadder = padding.PKCS7(128).unpadder()
         data = unpadder.update(padded_data) + unpadder.finalize()
         
         return data.decode('utf-8')
