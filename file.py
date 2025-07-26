@@ -322,11 +322,10 @@ class QuizEngine:
                     raise ValueError("All focus skills must be strings")
     
     def _generate_session_id(self, student_id: StudentID) -> str:
-        """Generate a unique session ID."""
         timestamp = int(time.time() * 1000)
-        random_part = random.randint(1000, 9999)
+        random_part = secrets.token_hex(4)
         return f"{student_id}_{timestamp}_{random_part}"
-    
+
     def _initialize_knowledge_states(self) -> Dict[NodeID, KnowledgeState]:
         """Initialize knowledge states for a new student with default values."""
         states = {}
@@ -477,9 +476,22 @@ class QuizEngine:
         exp_scores = [math.exp(s) for s in scores]
         sum_exp = sum(exp_scores)
         probs = [exp / sum_exp for exp in exp_scores]
+
+        import secrets
+
+        def secure_weighted_choice(weights):
+            total = sum(weights)
+            threshold = secrets.randbelow(int(total * 10**6)) / 10**6  # micro precision
+            acc = 0.0
+            for i, w in enumerate(weights):
+                acc += w
+                if threshold <= acc:
+                    return i
+            return len(weights) - 1  # fallback
+
         
         # Select node based on probabilities
-        selected_idx = random.choices(range(len(eligible_nodes)), weights=probs, k=1)[0]
+        selected_idx = secure_weighted_choice(probs)
         return eligible_nodes[selected_idx][0]
     
     def _check_prerequisites(self, node_id: NodeID, knowledge_state: Dict[NodeID, KnowledgeState]) -> bool:
@@ -1180,7 +1192,7 @@ if __name__ == "__main__":
         print(f"Question: {question.text}")
         
         # Simulate student response (random correctness for demo)
-        is_correct = random.random() > 0.5
+        is_correct = secrets.randbelow(2) == 1
         response = StudentResponse(
             question_id=question.id,
             response=question.correct_answer if is_correct else "wrong",
