@@ -697,18 +697,18 @@ class QuizEngine:
                     # Update dependent node's state
                     self._update_dependent_state(
                         student_id, 
-                        source_node_id, 
                         node_id, 
                         dependent_id, 
                         propagation_strength
                     )
+
                     
                     # Add to queue with increased distance
                     queue.append((dependent_id, distance + 1))
     
-    def _update_dependent_state(self, student_id: StudentID, source_node_id: NodeID, 
-                              prerequisite_id: NodeID, dependent_id: NodeID, 
-                              strength: float) -> None:
+    def _update_dependent_state(self, student_id: StudentID, 
+                           prerequisite_id: NodeID, dependent_id: NodeID, 
+                           strength: float) -> None:
         """
         Update a dependent node's state based on prerequisite changes.
         
