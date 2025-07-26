@@ -323,8 +323,10 @@ class QuizEngine:
     
     def _generate_session_id(self, student_id: StudentID) -> str:
         timestamp = int(time.time() * 1000)
+        # 8-character hexadecimal for randomness
         random_part = secrets.token_hex(4)
         return f"{student_id}_{timestamp}_{random_part}"
+
 
     def _initialize_knowledge_states(self) -> Dict[NodeID, KnowledgeState]:
         """Initialize knowledge states for a new student with default values."""
@@ -477,19 +479,18 @@ class QuizEngine:
         sum_exp = sum(exp_scores)
         probs = [exp / sum_exp for exp in exp_scores]
 
-        import secrets
 
         def secure_weighted_choice(weights):
-            total = sum(weights)
-            threshold = secrets.randbelow(int(total * 10**6)) / 10**6  # micro precision
-            acc = 0.0
-            for i, w in enumerate(weights):
-                acc += w
-                if threshold <= acc:
-                    return i
-            return len(weights) - 1  # fallback
+          total = sum(weights)
+          threshold = secrets.randbelow(int(total * 1e9)) / 1e9  # fine-grained
+          acc = 0.0
+          for i, w in enumerate(weights):
+              acc += w
+              if threshold <= acc:
+                  return i
+          return len(weights) - 1  # fallback
 
-        
+
         # Select node based on probabilities
         selected_idx = secure_weighted_choice(probs)
         return eligible_nodes[selected_idx][0]
