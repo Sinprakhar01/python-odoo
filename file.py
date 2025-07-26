@@ -807,21 +807,21 @@ class QuizEngine:
             return obj.__dict__
         raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
     
+    
+
     def _encrypt_data(self, data: str, key: Optional[str] = None) -> bytes:
         """
-        Encrypt data using AES-256 in CBC mode with PKCS7 padding.
-        
+        Encrypt data using AES-256-GCM (authenticated encryption).
         Args:
             data: Data to encrypt
             key: Encryption key (uses default if None)
-            
         Returns:
-            Encrypted data as bytes
+            Encrypted data as bytes (salt + nonce + ciphertext + tag)
         """
         key = key or DEFAULT_ENCRYPTION_KEY
         if not isinstance(key, str):
             raise TypeError("Encryption key must be a string")
-        
+
         # Derive key using PBKDF2
         salt = os.urandom(16)
         kdf = PBKDF2HMAC(
@@ -832,25 +832,14 @@ class QuizEngine:
             backend=default_backend()
         )
         key_bytes = kdf.derive(key.encode('utf-8'))
-        
-        # Generate IV
-        iv = os.urandom(16)
-        
-        # Pad data
-        padder = padding.PKCS7(128).padder()
-        padded_data = padder.update(data.encode('utf-8')) + padder.finalize()
-        
-        # Encrypt
-        cipher = Cipher(
-            algorithms.AES(key_bytes),
-            modes.CBC(iv),
-            backend=default_backend()
-        )
-        encryptor = cipher.encryptor()
-        encrypted_data = encryptor.update(padded_data) + encryptor.finalize()
-        
-        # Return salt + iv + encrypted data
-        return salt + iv + encrypted_data
+
+        # AES-GCM requires a 12-byte nonce
+        nonce = os.urandom(12)
+        aesgcm = AESGCM(key_bytes)
+        ciphertext = aesgcm.encrypt(nonce, data.encode('utf-8'), None)
+        # Output: salt + nonce + ciphertext (ciphertext includes the tag)
+        return salt + nonce + ciphertext
+
     
     def _generate_pdf_report(self, student_id: StudentID, session_id: str) -> Path:
         """
