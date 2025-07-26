@@ -237,29 +237,30 @@ class QuizEngine:
       return logger
     
     def _validate_dag(self) -> None:
-        """Validate that the knowledge graph is a proper DAG."""
-        visited = set()
-        recursion_stack = set()
-        
-        def is_cyclic(node_id: NodeID) -> bool:
-            """Check for cycles starting from a node."""
-            visited.add(node_id)
-            recursion_stack.add(node_id)
-            
-            for neighbor in self.knowledge_dag[node_id].prerequisites:
-                if neighbor not in visited:
-                    if is_cyclic(neighbor):
-                        return True
-                elif neighbor in recursion_stack:
-                    return True
-            
-            recursion_stack.remove(node_id)
-            return False
-        
-        for node_id in self.knowledge_dag:
-            if node_id not in visited:
-                if is_cyclic(node_id):
-                    raise ValueError("Knowledge graph contains cycles")
+      """Validate that the knowledge graph is a proper DAG."""
+      visited = set()
+      recursion_stack = set()
+      
+      def is_cyclic(node_id: NodeID) -> bool:
+          """Check for cycles starting from a node."""
+          if node_id in recursion_stack:
+              return True
+          if node_id in visited:
+              return False
+              
+          visited.add(node_id)
+          recursion_stack.add(node_id)
+          
+          for neighbor in self.knowledge_dag[node_id].prerequisites:
+              if is_cyclic(neighbor):
+                  return True
+          
+          recursion_stack.remove(node_id)
+          return False
+      
+      for node_id in self.knowledge_dag:
+          if node_id not in visited and is_cyclic(node_id):
+              raise ValueError("Knowledge graph contains cycles")
     
     def _index_questions(self) -> None:
         """Index questions by skill and difficulty for faster lookup."""
