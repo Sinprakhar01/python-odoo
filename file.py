@@ -28,7 +28,7 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, hmac
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import base64
-
+import secrets
 # PDF generation imports
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -510,73 +510,77 @@ class QuizEngine:
         return True
     
     def _select_question(self, node_id: NodeID, state: KnowledgeState, fairness_group: FairnessGroup) -> Optional[QuestionID]:
-        """
-        Select a question for the given node considering:
-        - Student's current knowledge level
-        - Question difficulty
-        - Fairness group distribution
-        """
-        node = self.knowledge_dag[node_id]
-        skill = node.skill
-        
-        # Get all questions for this skill
-        available_questions = []
-        for difficulty in DifficultyLevel:
-            available_questions.extend(self._question_index[skill][difficulty])
-        
-        if not available_questions:
-            return None
-        
-        # Filter by fairness group (stratified sampling)
-        group_questions = [qid for qid in available_questions 
-                          if self.questions[qid].fairness_group == fairness_group]
-        
-        # If no questions in fairness group, fall back to all available
-        questions_to_consider = group_questions if group_questions else available_questions
-        
-        # Calculate ideal difficulty based on student's knowledge
-        target_difficulty = self._calculate_target_difficulty(state.probability)
-        
-        # Score questions based on difficulty match and other factors
-        scored_questions = []
-        for qid in questions_to_consider:
-            question = self.questions[qid]
-            
-            # Difficulty match score (closer to target is better)
-            diff_score = 1 - abs(question.difficulty.value - target_difficulty.value) / 2
-            
-            # Recentness penalty (avoid recently asked questions)
-            recent_penalty = 0
-            if state.history:
-                last_asked = max(r.timestamp for r in state.history if r.question_id == qid) if any(
-                    r.question_id == qid for r in state.history) else 0
-                if last_asked > 0:
-                    days_since = (time.time() - last_asked) / (24 * 3600)
-                    recent_penalty = min(0.5, days_since / 7)  # Up to 50% penalty
-            
-            # Combine scores
-            score = 0.6 * diff_score + 0.4 * (1 - recent_penalty)
-            scored_questions.append((qid, score))
-        
-        # Select question using softmax probabilities
-        scores = [score for _, score in scored_questions]
+      """
+      Select a question for the given node considering:
+      - Student's current knowledge level
+      - Question difficulty
+      - Fairness group distribution
+      """
+      node = self.knowledge_dag[node_id]
+      skill = node.skill
+
+      available_questions = self._get_available_questions(skill)
+      if not available_questions:
+          return None
+
+      questions_to_consider = self._filter_questions_by_fairness(available_questions, fairness_group)
+      if not questions_to_consider:
+          questions_to_consider = available_questions
+
+      target_difficulty = self._calculate_target_difficulty(state.probability)
+      scored_questions = [
+          (qid, self._score_question(qid, state, target_difficulty))
+          for qid in questions_to_consider
+      ]
+
+      # Softmax probabilities
+      probs = self._softmax_scores([score for _, score in scored_questions])
+      selected_idx = self._secure_weighted_choice(probs)
+      return scored_questions[selected_idx][0]
+
+    def _get_available_questions(self, skill):
+        return [
+            qid
+            for difficulty in DifficultyLevel
+            for qid in self._question_index[skill][difficulty]
+        ]
+
+    def _filter_questions_by_fairness(self, questions, fairness_group):
+        return [
+            qid for qid in questions
+            if self.questions[qid].fairness_group == fairness_group
+        ]
+
+    def _score_question(self, qid, state, target_difficulty):
+        question = self.questions[qid]
+        diff_score = 1 - abs(question.difficulty.value - target_difficulty.value) / 2
+        recent_penalty = self._calculate_recent_penalty(qid, state.history)
+        return 0.6 * diff_score + 0.4 * (1 - recent_penalty)
+
+    def _calculate_recent_penalty(self, qid, history):
+        timestamps = [r.timestamp for r in history if r.question_id == qid]
+        if not timestamps:
+            return 0
+        last_asked = max(timestamps)
+        days_since = (time.time() - last_asked) / (24 * 3600)
+        return min(0.5, days_since / 7)
+
+    def _softmax_scores(self, scores):
         exp_scores = [math.exp(s) for s in scores]
         sum_exp = sum(exp_scores)
-        probs = [exp / sum_exp for exp in exp_scores]
-        def secure_weighted_choice(weights):
-          total = sum(weights)
-          threshold = secrets.randbelow(int(total * 1e9)) / 1e9  # fine-grained
-          acc = 0.0
-          for i, w in enumerate(weights):
-              acc += w
-              if threshold <= acc:
-                  return i
-          return len(weights) - 1  # fallback
+        return [exp / sum_exp for exp in exp_scores]
 
+    def _secure_weighted_choice(self, weights):
+        import secrets
+        total = sum(weights)
+        threshold = secrets.randbelow(int(total * 1e9)) / 1e9
+        acc = 0.0
+        for i, w in enumerate(weights):
+            acc += w
+            if threshold <= acc:
+                return i
+        return len(weights) - 1  # fallback
 
-        
-        selected_idx = secure_weighted_choice(probs)
-        return scored_questions[selected_idx][0]
     
     def _calculate_target_difficulty(self, probability: Probability) -> DifficultyLevel:
         """
